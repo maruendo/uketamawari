@@ -485,7 +485,7 @@ body.customer-mode #backup-banner { display: none; }
 .btn-close-kbd { flex: 0 0 auto; }
 .btn-close-kbd.hidden { display: none; }
 /* 予約一覧から開いたときだけ出る「編集する」 */
-#btn-preview-edit.hidden { display: none; }
+#btn-preview-edit.hidden, #btn-preview-edit-items.hidden { display: none; }   /* .hidden は全体共通ではなく個別指定。新しいボタンを足したらここにも */
 
 /* 商品編集の「詰合せの中身」欄 */
 #e-picks-hint { font-size: 14px; color: #666; line-height: 1.5; width: 100%; }
