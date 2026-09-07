@@ -195,7 +195,9 @@ body.customer-mode #app-header nav { display: none; }
    （縮尺だけでなく下の余白・行高も詰めてあるので、文字は1割弱しか小さくしていない） */
 .sheet-pair { display: flex; align-items: stretch; }
 .sheet-pair .sheet-copy { width: 50%; padding: 0 3mm; }
-.sheet-pair .sheet-copy .sheet { zoom: 0.60; }
+.sheet-pair .sheet-copy .sheet { zoom: 0.60; }   /* 店控は fitShopZoom が 0.60〜0.80 で上書きする */
+/* 高さを mm に換算するための定規。幅100mm・高さ0で見えない */
+#print-sheet .mm-ruler { width: 100mm; height: 0; }
 .sheet-pair .cut-line { border-left: 1px dashed #999; flex-shrink: 0; }
 
 /* ===== 承り表（A4・画面と印刷で共用） ===== */
@@ -236,8 +238,9 @@ body.customer-mode #app-header nav { display: none; }
   display: flex; flex-direction: column;
 }
 .sheet-bottom .sb-right .lbl { font-size: 10pt; color: #333; }
-/* 最低高さは 100mm → 60mm（2026-09-02・紙面を1枚に収めるため）。行が多ければ伸びる */
-.sheet-bottom .sb-right .memo-box { flex: 1; min-height: 60mm; white-space: pre-wrap; }
+/* 最低高さは 100mm → 60mm（2026-09-02）→ 45mm（2026-09-07・店控の字を大きくする余地を作るため。
+   fitShopZoom が高さを見て zoom を決めるので、空欄の枠が高いほど字が小さくなる）。行が多ければ伸びる */
+.sheet-bottom .sb-right .memo-box { flex: 1; min-height: 45mm; white-space: pre-wrap; }
 
 /* --- 新レイアウト（2026-08-30の店主指示） --- */
 /* 上部は左右2列。左=お客様、右=受渡・支払 */

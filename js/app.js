@@ -23,7 +23,7 @@
 
   // 設定画面に出す版番号。iPadに届いているのが新しい版かを店主と電話で確認するために要る。
   // **sw.js の CACHE と必ず同じ番号にすること**（片方だけ上げると嘘の表示になる）
-  const APP_VERSION = "v36（2026-09-07）";
+  const APP_VERSION = "v37（2026-09-07）";
 
   const $ = (sel) => document.querySelector(sel);
   const yen = (n) => "¥" + Number(n).toLocaleString("ja-JP");
@@ -101,7 +101,7 @@
     document.querySelectorAll(".nav-btn").forEach((b) => {
       b.classList.toggle("active", b.dataset.goto === navFor);
     });
-    if (screenId === "screen-preview") fitDateVals();   // 表示されてから測り直す
+    if (screenId === "screen-preview") fitSheets();   // 表示されてから測り直す
   }
   document.querySelectorAll("[data-goto]").forEach((b) => {
     b.addEventListener("click", () => {
@@ -657,14 +657,17 @@
   };
   const ITEM_ROWS = 7;   // 明細の行数（記入分＋手書き用の空行）
 
-  function itemRows() {
+  // withNote=false はお客様控（商品内容の列を出さない。店主 2026-09-07:
+  // 「お客様は商品内容とトータル数は必要ない」。列が減るぶん商品名が読みやすくなる）
+  function itemRows(withNote) {
     let rows = "";
     for (let r = 0; r < ITEM_ROWS; r++) {
       const it = state.items[r];
       const note = it ? (fmtPicksInline(it.picks) || it.note || "") : "";
+      const noteTd = withNote ? `<td class="c-note">${it ? esc(note) : ""}</td>` : "";
       rows += it
-        ? `<tr><td>${esc(it.name)}</td><td class="c-price">${yen(it.price)}</td><td class="c-qty">${it.qty}</td><td class="c-note">${esc(note)}</td></tr>`
-        : `<tr class="blank"><td></td><td class="c-price"></td><td class="c-qty"></td><td class="c-note"></td></tr>`;
+        ? `<tr><td>${esc(it.name)}</td><td class="c-price">${yen(it.price)}</td><td class="c-qty">${it.qty}</td>${noteTd}</tr>`
+        : `<tr class="blank"><td></td><td class="c-price"></td><td class="c-qty"></td>${noteTd}</tr>`;
     }
     return rows;
   }
@@ -742,11 +745,16 @@
         </div>
       </div>`;
 
-    const table = `
+    const table = forShop ? `
       <table>
         <tr><th style="width:36%">商品名（箱種類）</th><th style="width:18%">価格（税込）</th><th style="width:10%">個数</th><th>商品内容</th></tr>
-        ${itemRows()}
-      </table>
+        ${itemRows(true)}
+      </table>` : `
+      <table>
+        <tr><th style="width:56%">商品名（箱種類）</th><th style="width:26%">価格（税込）</th><th>個数</th></tr>
+        ${itemRows(false)}
+      </table>`;
+    const tableWithWarn = `${table}
       ${state.items.length > ITEM_ROWS
         ? `<div class="overflow-warn">※明細が${state.items.length}件あり、${ITEM_ROWS}行に入り切りません</div>` : ""}`;
 
@@ -754,7 +762,7 @@
       // お客様用: レシート風。包材や備考は見せない
       return `<div class="sheet sheet-customer">
         <div class="copy-label">お客様控</div>
-        ${head}${table}
+        ${head}${tableWithWarn}
         <div class="sheet-totals">
           <span class="thanks">ご予約ありがとうございました</span>
           <span class="total-price">合計（税込） ${yen(t.price)}</span>
@@ -771,7 +779,7 @@
     // 店用: 菓子・包材の大枠と備考つき
     return `<div class="sheet sheet-shop">
       <div class="copy-label">店控</div>
-      ${head}${table}
+      ${head}${tableWithWarn}
       <div class="sheet-bottom">
         <div class="sb-left">
           <div class="sheet-row"><span class="lbl">合計（税込）</span><span class="val total-price">${yen(t.price)}</span></div>
@@ -789,12 +797,44 @@
     setPrintedMode(false);
     $("#print-sheet").innerHTML =
       `<div class="sheet-pair">
-         <div class="sheet-copy">${sheetHTML("customer")}</div>
+         <div class="sheet-copy sheet-copy-customer">${sheetHTML("customer")}</div>
          <div class="cut-line"></div>
-         <div class="sheet-copy">${sheetHTML("shop")}</div>
-       </div>`;
+         <div class="sheet-copy sheet-copy-shop">${sheetHTML("shop")}</div>
+       </div>
+       <div class="mm-ruler" aria-hidden="true"></div>`;
     updatePreviewBar();
-    fitDateVals();
+    fitSheets();
+  }
+
+  /* 店控の字を、A4横の半分（A5相当）の枠の中でできるだけ大きくする（店主 2026-09-07:
+     「店控の字が少し大きくなって、A4に収まればいい」。老眼で7pt相当は読みにくい）。
+     お客様控は今までどおり zoom 0.60 のまま（「お客様は小さくていい」）。
+     やり方: 店控の zoom を 0.80 から 0.02 刻みで下げていき、店控の高さが紙に収まる最初の値を採る。
+     下限は 0.60（今までの大きさ。これ以下にはしない）。高さの mm 換算は #print-sheet 内の
+     幅100mmの定規要素（.mm-ruler）を実測して行うので、画面の外側の zoom（スマホ幅で 0.42）が
+     掛かっていても正しく測れる。予約が軽ければ字が大きく、右下の枠が20行を超えるような重い
+     予約では今までの大きさに近づく。プレビュー表示時・resize・beforeprint で掛け直す */
+  const SHOP_ZOOM_MAX = 0.80, SHOP_ZOOM_MIN = 0.60, SHOP_ZOOM_STEP = 0.02;
+  // A4横の高さ210mm − 余白8mm×2 = 194mm が理論値。ただし店のプリンタ（iPad→AirPrint→Canon TS3730）は
+  // Chromeの計測より1割ほど大きく出る疑いがある（v23の「82%で収まる」、2026-09-07の実物写真）ので、
+  // 余裕を見て 172mm。**店で2枚に分かれたらここを下げ、下に余白が余るようなら上げる**（1か所で調整できる）
+  const PAGE_LIMIT_MM = 172;
+  function fitShopZoom() {
+    const copy = document.querySelector("#print-sheet .sheet-copy-shop");
+    const sheet = copy && copy.querySelector(".sheet");
+    const ruler = document.querySelector("#print-sheet .mm-ruler");
+    if (!sheet || !ruler || !ruler.getBoundingClientRect().width) return;
+    const pxPerMm = ruler.getBoundingClientRect().width / 100;
+    let z = SHOP_ZOOM_MAX;
+    for (; z > SHOP_ZOOM_MIN + 1e-9; z -= SHOP_ZOOM_STEP) {
+      sheet.style.zoom = z.toFixed(2);
+      if (copy.getBoundingClientRect().height / pxPerMm <= PAGE_LIMIT_MM) break;
+    }
+    if (z <= SHOP_ZOOM_MIN + 1e-9) sheet.style.zoom = SHOP_ZOOM_MIN.toFixed(2);
+  }
+  function fitSheets() {
+    fitShopZoom();
+    fitDateVals();   // 拡大すると日付欄の幅も変わるので、zoomを決めてから測る
   }
 
   // 御来店日時・発送日・着日は必ず1行（店主 2026-09-02）。iPadの画面幅では
@@ -812,8 +852,8 @@
       }
     });
   }
-  window.addEventListener("resize", fitDateVals);
-  window.addEventListener("beforeprint", fitDateVals);
+  window.addEventListener("resize", fitSheets);
+  window.addEventListener("beforeprint", fitSheets);
 
   // 下のボタンは来た経路で変える（店主指示 2026-09-01）
   //   予約一覧から: [予約一覧に戻る][編集する][保存][印刷]
