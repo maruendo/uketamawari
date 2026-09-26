@@ -23,7 +23,7 @@
 
   // 設定画面に出す版番号。iPadに届いているのが新しい版かを店主と電話で確認するために要る。
   // **sw.js の CACHE と必ず同じ番号にすること**（片方だけ上げると嘘の表示になる）
-  const APP_VERSION = "v38（2026-09-07）";
+  const APP_VERSION = "v39（2026-09-26）";
 
   const $ = (sel) => document.querySelector(sel);
   const yen = (n) => "¥" + Number(n).toLocaleString("ja-JP");
@@ -286,15 +286,28 @@
     return autoPicksFromContents(product);
   }
 
+  /* 包材のうち、押したあとに種類を選ばせるもの（店主 2026-09-25）。
+     紙袋・カートン箱代は大きさ違いが何種類もあり、用意する包材の指示にならないため。
+     キーは商品id（価格表の内容に戻してもidは変わらない）。name＝紙に出す名前 */
+  const PACK_VARIANTS = {
+    p_126: ["サンサイ小", "サンサイ大", "ガトー", "Eバン", "ヨンサイ", "角底3", "角底6", "角底14"]
+      .map((v) => ({ label: v, name: `紙袋 ${v}` })),
+    p_097: ["上用カートン4", "上用カートン6", "上用カートン8", "上用カートン10"]
+      .map((v) => ({ label: v, name: v })),
+  };
+
   const picker = {
     _onPick: null,
     _kind: null,
     _cat: null,
+    _parent: null,   // 種類を選んでいる最中の商品（紙袋など）
+    _title: "",
     open({ title, kind, onPick }) {
       this._onPick = onPick;
       this._kind = kind;
       this._cat = null;
-      $("#picker-title").textContent = title;
+      this._parent = null;
+      this._title = title;
       this.render();
       $("#picker-overlay").classList.remove("hidden");
     },
@@ -305,7 +318,39 @@
     candidates() {
       return state.master.products.filter((p) => p[this._kind]);
     },
+    // 選んだものの個数を聞いて返す
+    choose(id, name) {
+      const fn = this._onPick;
+      this.close();
+      numpad.open({
+        title: `${name} の個数`,
+        initial: 1,
+        onOk: (qty) => { if (qty > 0 && fn) fn({ id, name, qty }); },
+      });
+    },
+    renderVariants() {
+      const p = this._parent;
+      $("#picker-title").textContent = `${p.name} の種類`;
+      const tabs = $("#picker-tabs");
+      tabs.innerHTML = "";
+      const back = document.createElement("button");
+      back.className = "picker-tab";
+      back.textContent = "◀ 包材の一覧へ戻る";
+      back.addEventListener("click", () => { this._parent = null; this.render(); });
+      tabs.appendChild(back);
+      const list = $("#picker-list");
+      list.innerHTML = "";
+      PACK_VARIANTS[p.id].forEach((v) => {
+        const b = document.createElement("button");
+        b.className = "picker-item";
+        b.textContent = v.label;
+        b.addEventListener("click", () => this.choose(p.id, v.name));
+        list.appendChild(b);
+      });
+    },
     render() {
+      if (this._parent) return this.renderVariants();
+      $("#picker-title").textContent = this._title;
       const all = this.candidates();
       // 候補が多いので価格表の分類で絞り込めるようにする
       const cats = [...new Set(all.map((p) => p.srcCategory || p.category))];
@@ -324,15 +369,11 @@
       all.filter((p) => (p.srcCategory || p.category) === this._cat).forEach((p) => {
         const b = document.createElement("button");
         b.className = "picker-item";
-        b.textContent = p.name;
+        const hasVariants = this._kind === "packaging" && PACK_VARIANTS[p.id];
+        b.textContent = hasVariants ? `${p.name} ▶` : p.name;
         b.addEventListener("click", () => {
-          const fn = this._onPick;
-          this.close();
-          numpad.open({
-            title: `${p.name} の個数`,
-            initial: 1,
-            onOk: (qty) => { if (qty > 0 && fn) fn({ id: p.id, name: p.name, qty }); },
-          });
+          if (hasVariants) { this._parent = p; this.render(); return; }
+          this.choose(p.id, p.name);
         });
         list.appendChild(b);
       });
