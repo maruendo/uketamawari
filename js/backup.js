@@ -108,11 +108,15 @@ const backup = (() => {
 
   // Excelが勝手に数式や数値として扱わないよう、全欄を "" で囲む
   const csvCell = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  // 電話番号は "" で囲むだけではExcelが数値にして先頭の0を落とす（店主 2026-09-26・実機で発生）。
+  // ="0979…" の形にするとExcel・LibreOfficeとも文字のまま読む。空欄はそのまま空に
+  const csvText = (v) => (v === "" || v == null) ? '""' : `=${csvCell(v)}`;
   function customersCsv(orders) {
     const head = ["御名前", "御住所", "電話番号", "最後の予約日", "最初の予約日", "予約回数"];
     const rows = customersFromOrders(orders).map((c) =>
-      [c.name, c.address, c.phone, c.lastDate, c.firstDate, c.count]);
-    return [head, ...rows].map((r) => r.map(csvCell).join(",")).join("\r\n") + "\r\n";
+      [csvCell(c.name), csvCell(c.address), csvText(c.phone),
+       csvCell(c.lastDate), csvCell(c.firstDate), csvCell(c.count)].join(","));
+    return [head.map(csvCell).join(","), ...rows].join("\r\n") + "\r\n";
   }
 
   async function prepareCustomers() {
