@@ -79,5 +79,54 @@ const backup = (() => {
     return result;
   }
 
-  return { build, prepare, download, parse, importPayload, FORMAT };
+  /* ===== お客様名簿（CSV）=====
+     予約データから名前・住所・電話だけを抜き出してExcelで開ける形にする（店主 2026-09-26）。
+     同じお客様は1行にまとめる。同一人物の判定は電話番号（数字だけにして比較）、
+     電話が空なら名前＋住所。名前や住所は一番新しい予約のものを採る。
+     純関数にしてあるのでヘッドレスで中身を確かめられる */
+  const digits = (s) => String(s || "").replace(/\D/g, "");
+  function customersFromOrders(orders) {
+    const map = new Map();
+    const sorted = [...orders].sort((a, b) => String(b.date).localeCompare(String(a.date)));
+    for (const o of sorted) {
+      const c = o.customer || {};
+      const key = digits(c.phone) || `${(c.name || "").trim()}|${(c.address || "").trim()}`;
+      if (!key || key === "|") continue;
+      const cur = map.get(key);
+      if (cur) {
+        cur.count += 1;
+        if (o.date < cur.firstDate) cur.firstDate = o.date;
+      } else {
+        map.set(key, {
+          name: c.name || "", address: c.address || "", phone: c.phone || "",
+          lastDate: o.date || "", firstDate: o.date || "", count: 1,
+        });
+      }
+    }
+    return [...map.values()];
+  }
+
+  // Excelが勝手に数式や数値として扱わないよう、全欄を "" で囲む
+  const csvCell = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  function customersCsv(orders) {
+    const head = ["御名前", "御住所", "電話番号", "最後の予約日", "最初の予約日", "予約回数"];
+    const rows = customersFromOrders(orders).map((c) =>
+      [c.name, c.address, c.phone, c.lastDate, c.firstDate, c.count]);
+    return [head, ...rows].map((r) => r.map(csvCell).join(",")).join("\r\n") + "\r\n";
+  }
+
+  async function prepareCustomers() {
+    const orders = await db.getAll("orders");
+    const csv = customersCsv(orders);
+    // 先頭のBOMが無いとWindowsのExcelで日本語が化ける
+    const blob = new Blob(["﻿" + csv], { type: "text/csv" });
+    return {
+      url: URL.createObjectURL(blob),
+      filename: `お客様名簿_${stamp()}.csv`,
+      count: csv.split("\r\n").length - 2,
+    };
+  }
+
+  return { build, prepare, download, parse, importPayload, FORMAT,
+           customersFromOrders, customersCsv, prepareCustomers };
 })();

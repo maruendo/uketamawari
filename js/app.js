@@ -1279,6 +1279,21 @@
     alert(`予約 ${file.counts.orders} 件を書き出します。\n保存先にお店のパソコンの共有フォルダを選んでください。`);
   });
 
+  // お客様名簿（CSV）。バックアップではないので「最後に書き出した日」は更新しない
+  $("#btn-export-customers").addEventListener("click", async () => {
+    let file;
+    try {
+      file = await backup.prepareCustomers();
+    } catch (err) {
+      console.error("customers export failed", err);
+      alert("書き出しに失敗しました：" + err.message);
+      return;
+    }
+    if (file.count === 0) { alert("まだ予約がないので、名簿に載せるお客様がいません。"); return; }
+    backup.download(file);
+    alert(`お客様 ${file.count} 名の名簿を書き出します。\n保存先にお店のパソコンの共有フォルダを選んでください。`);
+  });
+
   /* ===== バックアップ促しバナー ===== */
   const BACKUP_REMIND_DAYS = 7;
 
