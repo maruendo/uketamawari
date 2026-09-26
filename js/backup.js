@@ -79,58 +79,72 @@ const backup = (() => {
     return result;
   }
 
-  /* ===== お客様名簿（CSV）=====
-     予約データから名前・住所・電話だけを抜き出してExcelで開ける形にする（店主 2026-09-26）。
-     同じお客様は1行にまとめる。同一人物の判定は電話番号（数字だけにして比較）、
-     電話が空なら名前＋住所。名前や住所は一番新しい予約のものを採る。
-     純関数にしてあるのでヘッドレスで中身を確かめられる */
-  const digits = (s) => String(s || "").replace(/\D/g, "");
-  function customersFromOrders(orders) {
-    const map = new Map();
-    const sorted = [...orders].sort((a, b) => String(b.date).localeCompare(String(a.date)));
-    for (const o of sorted) {
-      const c = o.customer || {};
-      const key = digits(c.phone) || `${(c.name || "").trim()}|${(c.address || "").trim()}`;
-      if (!key || key === "|") continue;
-      const cur = map.get(key);
-      if (cur) {
-        cur.count += 1;
-        if (o.date < cur.firstDate) cur.firstDate = o.date;
-      } else {
-        map.set(key, {
-          name: c.name || "", address: c.address || "", phone: c.phone || "",
-          lastDate: o.date || "", firstDate: o.date || "", count: 1,
-        });
-      }
-    }
-    return [...map.values()];
-  }
-
+  /* ===== 予約の記録（CSV）=====
+     予約1件＝1行で、お客様の情報と予約の中身（商品・金額・受渡・熨斗など）をExcelで開ける形にする
+     （店主 2026-09-26。最初は1人1行の名簿だったが「予約内容も入れてほしい」で予約ごとに変更。
+     予約を削除する前の記録として残す用途なので、中身はすべて出す）。
+     新しい予約が上。純関数にしてあるのでヘッドレスで中身を確かめられる */
   // Excelが勝手に数式や数値として扱わないよう、全欄を "" で囲む
   const csvCell = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
   // 電話番号は "" で囲むだけではExcelが数値にして先頭の0を落とす（店主 2026-09-26・実機で発生）。
   // ="0979…" の形にするとExcel・LibreOfficeとも文字のまま読む。空欄はそのまま空に
   const csvText = (v) => (v === "" || v == null) ? '""' : `=${csvCell(v)}`;
-  function customersCsv(orders) {
-    const head = ["御名前", "御住所", "電話番号", "最後の予約日", "最初の予約日", "予約回数"];
-    const rows = customersFromOrders(orders).map((c) =>
-      [csvCell(c.name), csvCell(c.address), csvText(c.phone),
-       csvCell(c.lastDate), csvCell(c.firstDate), csvCell(c.count)].join(","));
-    return [head.map(csvCell).join(","), ...rows].join("\r\n") + "\r\n";
+  const pickInline = (picks) => (picks || []).map((p) => `${p.name}×${p.qty}`).join("・");
+  // 「詰合せ1×2（最中×9・笑くぼ×10）・大福×10」。中身を選んだ明細は（）で添える
+  const itemsText = (items) => (items || []).map((it) => {
+    const inner = pickInline(it.picks);
+    return `${it.name}×${it.qty}` + (inner ? `（${inner}）` : "");
+  }).join("・");
+  const visitText = (d) => {
+    if (!d.visitAt) return "";
+    const [date, time] = d.visitAt.split("T");
+    return time ? `${date} ${time}` : date;
+  };
+
+  const ORDER_COLUMNS = [
+    ["予約日", (o) => o.date],
+    ["御名前", (o) => o.customer?.name],
+    ["御住所", (o) => o.customer?.address],
+    ["電話番号", (o) => o.customer?.phone, csvText],
+    ["商品", (o) => itemsText(o.items)],
+    ["合計", (o) => o.total],
+    ["総個数", (o) => o.totalQty],
+    ["受渡", (o) => o.delivery?.method],
+    ["御来店日時", (o) => visitText(o.delivery || {})],
+    ["発送日", (o) => o.delivery?.shipDate],
+    ["着日", (o) => o.delivery?.arriveDate],
+    ["熨斗", (o) => o.noshi?.type],
+    ["熨斗サイズ", (o) => o.noshi?.size],
+    ["表書き", (o) => o.noshi?.omotegaki],
+    // picksが無い古い予約は紙用の文字列（「・最中×9」を改行で並べたもの）から起こす
+    ["菓子・包材", (o) => pickInline(o.packagingPicks)
+      || String(o.packaging || "").split("\n").map((l) => l.replace(/^・/, "")).filter(Boolean).join("・")],
+    ["備考", (o) => o.memo],
+    ["担当", (o) => o.staff],
+    ["お支払い", (o) => (o.paid ? "済" : "まだ")],
+    ["お渡し", (o) => (o.status === "受渡済" ? "済" : "まだ")],
+    ["予約ID", (o) => o.id],
+  ];
+  function ordersCsv(orders) {
+    const sorted = [...orders].sort((a, b) =>
+      String(b.date).localeCompare(String(a.date)) || String(b.id).localeCompare(String(a.id)));
+    const head = ORDER_COLUMNS.map(([h]) => csvCell(h)).join(",");
+    const rows = sorted.map((o) =>
+      ORDER_COLUMNS.map(([, get, fmt]) => (fmt || csvCell)(get(o))).join(","));
+    return [head, ...rows].join("\r\n") + "\r\n";
   }
 
-  async function prepareCustomers() {
+  async function prepareOrdersCsv() {
     const orders = await db.getAll("orders");
-    const csv = customersCsv(orders);
+    const csv = ordersCsv(orders);
     // 先頭のBOMが無いとWindowsのExcelで日本語が化ける
     const blob = new Blob(["﻿" + csv], { type: "text/csv" });
     return {
       url: URL.createObjectURL(blob),
-      filename: `お客様名簿_${stamp()}.csv`,
-      count: csv.split("\r\n").length - 2,
+      filename: `予約の記録_${stamp()}.csv`,
+      count: orders.length,
     };
   }
 
-  return { build, prepare, download, parse, importPayload, FORMAT,
-           customersFromOrders, customersCsv, prepareCustomers };
+  return { build, prepare, download, parse, importPayload, FORMAT, ordersCsv, prepareOrdersCsv };
 })();

@@ -24,7 +24,7 @@
 
   // 設定画面に出す版番号。iPadに届いているのが新しい版かを店主と電話で確認するために要る。
   // **sw.js の CACHE と必ず同じ番号にすること**（片方だけ上げると嘘の表示になる）
-  const APP_VERSION = "v40（2026-09-26）";
+  const APP_VERSION = "v41（2026-09-26）";
 
   const $ = (sel) => document.querySelector(sel);
   const yen = (n) => "¥" + Number(n).toLocaleString("ja-JP");
@@ -1280,19 +1280,20 @@
     alert(`予約 ${file.counts.orders} 件を書き出します。\n保存先にお店のパソコンの共有フォルダを選んでください。`);
   });
 
-  // お客様名簿（CSV）。バックアップではないので「最後に書き出した日」は更新しない
-  $("#btn-export-customers").addEventListener("click", async () => {
+  // 予約の記録（CSV）。バックアップではないので「最後に書き出した日」は更新しない
+  $("#btn-export-orders-csv").addEventListener("click", async () => {
     let file;
     try {
-      file = await backup.prepareCustomers();
+      file = await backup.prepareOrdersCsv();
     } catch (err) {
-      console.error("customers export failed", err);
+      console.error("orders csv export failed", err);
       alert("書き出しに失敗しました：" + err.message);
       return;
     }
-    if (file.count === 0) { alert("まだ予約がないので、名簿に載せるお客様がいません。"); return; }
+    if (file.count === 0) { alert("まだ予約がないので、書き出すものがありません。"); return; }
     backup.download(file);
-    alert(`お客様 ${file.count} 名の名簿を書き出します。\n保存先にお店のパソコンの共有フォルダを選んでください。`);
+    alert(`予約 ${file.count} 件の記録を書き出します。
+保存先にお店のパソコンの共有フォルダを選んでください。`);
   });
 
   /* ===== バックアップ促しバナー ===== */
