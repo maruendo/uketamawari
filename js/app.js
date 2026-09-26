@@ -24,7 +24,7 @@
 
   // 設定画面に出す版番号。iPadに届いているのが新しい版かを店主と電話で確認するために要る。
   // **sw.js の CACHE と必ず同じ番号にすること**（片方だけ上げると嘘の表示になる）
-  const APP_VERSION = "v42（2026-09-26）";
+  const APP_VERSION = "v43（2026-09-26）";
 
   const $ = (sel) => document.querySelector(sel);
   const yen = (n) => "¥" + Number(n).toLocaleString("ja-JP");
@@ -1280,13 +1280,13 @@
     alert(`予約 ${file.counts.orders} 件を書き出します。\n保存先にお店のパソコンの共有フォルダを選んでください。`);
   });
 
-  // 予約の記録（CSV）。バックアップではないので「最後に書き出した日」は更新しない
-  $("#btn-export-orders-csv").addEventListener("click", async () => {
+  // 予約の記録（Excel）。バックアップではないので「最後に書き出した日」は更新しない
+  $("#btn-export-orders-xlsx").addEventListener("click", async () => {
     let file;
     try {
-      file = await backup.prepareOrdersCsv();
+      file = await backup.prepareOrdersXlsx();
     } catch (err) {
-      console.error("orders csv export failed", err);
+      console.error("orders xlsx export failed", err);
       alert("書き出しに失敗しました：" + err.message);
       return;
     }

@@ -79,22 +79,12 @@ const backup = (() => {
     return result;
   }
 
-  /* ===== 予約の記録（CSV）=====
-     予約1件＝1行で、お客様の情報と予約の中身（商品・金額・受渡・熨斗など）をExcelで開ける形にする
-     （店主 2026-09-26。最初は1人1行の名簿だったが「予約内容も入れてほしい」で予約ごとに変更。
+  /* ===== 予約の記録（Excel）=====
+     予約1件＝1行で、お客様の情報と予約の中身（商品・金額・受渡・熨斗など）をExcelファイルにする
+     （店主 2026-09-26。最初は1人1行の名簿CSVだったが「予約内容も入れてほしい」で予約ごとに変更。
      予約を削除する前の記録として残す用途なので、中身はすべて出す）。
-     新しい予約が上。純関数にしてあるのでヘッドレスで中身を確かめられる */
-  // Excelが勝手に数式や数値として扱わないよう、全欄を "" で囲む。
-  // "" で囲んでも = + - @ で始まる欄はExcelが数式と見なして #NAME? になるので
-  // （備考「+10個追加」など）、先頭に空白を1つ足して逃がす
-  const csvCell = (v) => {
-    let s = String(v ?? "").replace(/"/g, '""');
-    if (/^[=+\-@]/.test(s)) s = " " + s;
-    return `"${s}"`;
-  };
-  // 電話番号は "" で囲むだけではExcelが数値にして先頭の0を落とす（店主 2026-09-26・実機で発生）。
-  // ="0979…" の形にするとExcel・LibreOfficeとも文字のまま読む。空欄はそのまま空に
-  const csvText = (v) => (v === "" || v == null) ? '""' : `=${csvCell(v)}`;
+     CSVは店のExcelで先頭0が消える・全部A列に入る、が起きたので .xlsx を直接作る（js/xlsx.js）。
+     新しい予約が上。ordersRows は純関数にしてあるのでNodeで中身を確かめられる */
   const pickInline = (picks) => (picks || []).map((p) => `${p.name}×${p.qty}`).join("・");
   // 「詰合せ1×2（最中×9・笑くぼ×10）・大福×10」。中身を選んだ明細は（）で添える
   const itemsText = (items) => (items || []).map((it) => {
@@ -106,51 +96,58 @@ const backup = (() => {
     const [date, time] = d.visitAt.split("T");
     return time ? `${date} ${time}` : date;
   };
+  const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : (v == null || v === "" ? null : String(v)));
 
+  // [見出し, 値の取り出し, 列幅]。文字はそのまま文字セル、合計・総個数だけ数値セルにする
   const ORDER_COLUMNS = [
-    ["予約日", (o) => o.date],
-    ["御名前", (o) => o.customer?.name],
-    ["御住所", (o) => o.customer?.address],
-    ["電話番号", (o) => o.customer?.phone, csvText],
-    ["商品", (o) => itemsText(o.items)],
-    ["合計", (o) => o.total],
-    ["総個数", (o) => o.totalQty],
-    ["受渡", (o) => o.delivery?.method],
-    ["御来店日時", (o) => visitText(o.delivery || {})],
-    ["発送日", (o) => o.delivery?.shipDate],
-    ["着日", (o) => o.delivery?.arriveDate],
-    ["熨斗", (o) => o.noshi?.type],
-    ["熨斗サイズ", (o) => o.noshi?.size],
-    ["表書き", (o) => o.noshi?.omotegaki],
+    ["予約日", (o) => o.date, 11],
+    ["御名前", (o) => o.customer?.name, 14],
+    ["御住所", (o) => o.customer?.address, 30],
+    ["電話番号", (o) => o.customer?.phone, 14],
+    ["商品", (o) => itemsText(o.items), 50],
+    ["合計", (o) => num(o.total), 8],
+    ["総個数", (o) => num(o.totalQty), 7],
+    ["受渡", (o) => o.delivery?.method, 6],
+    ["御来店日時", (o) => visitText(o.delivery || {}), 17],
+    ["発送日", (o) => o.delivery?.shipDate, 11],
+    ["着日", (o) => o.delivery?.arriveDate, 11],
+    ["熨斗", (o) => o.noshi?.type, 6],
+    ["熨斗サイズ", (o) => o.noshi?.size, 9],
+    ["表書き", (o) => o.noshi?.omotegaki, 8],
     // picksが無い古い予約は紙用の文字列（「・最中×9」を改行で並べたもの）から起こす
     ["菓子・包材", (o) => pickInline(o.packagingPicks)
-      || String(o.packaging || "").split("\n").map((l) => l.replace(/^・/, "")).filter(Boolean).join("・")],
-    ["備考", (o) => o.memo],
-    ["担当", (o) => o.staff],
-    ["お支払い", (o) => (o.paid ? "済" : "まだ")],
-    ["お渡し", (o) => (o.status === "受渡済" ? "済" : "まだ")],
-    ["予約ID", (o) => o.id],
+      || String(o.packaging || "").split("\n").map((l) => l.replace(/^・/, "")).filter(Boolean).join("・"), 30],
+    ["備考", (o) => o.memo, 30],
+    ["担当", (o) => o.staff, 8],
+    ["お支払い", (o) => (o.paid ? "済" : "まだ"), 8],
+    ["お渡し", (o) => (o.status === "受渡済" ? "済" : "まだ"), 7],
+    ["予約ID", (o) => o.id, 16],
   ];
-  function ordersCsv(orders) {
+  function ordersRows(orders) {
     const sorted = [...orders].sort((a, b) =>
       String(b.date).localeCompare(String(a.date)) || String(b.id).localeCompare(String(a.id)));
-    const head = ORDER_COLUMNS.map(([h]) => csvCell(h)).join(",");
-    const rows = sorted.map((o) =>
-      ORDER_COLUMNS.map(([, get, fmt]) => (fmt || csvCell)(get(o))).join(","));
-    return [head, ...rows].join("\r\n") + "\r\n";
+    const head = ORDER_COLUMNS.map(([h]) => h);
+    const rows = sorted.map((o) => ORDER_COLUMNS.map(([, get]) => {
+      const v = get(o);
+      return v == null ? null : (typeof v === "number" ? v : String(v));
+    }));
+    return [head, ...rows];
+  }
+  const ORDER_WIDTHS = ORDER_COLUMNS.map(([, , w]) => w);
+
+  function ordersXlsx(orders) {
+    return xlsx.build({ sheetName: "予約", rows: ordersRows(orders), widths: ORDER_WIDTHS });
   }
 
-  async function prepareOrdersCsv() {
+  async function prepareOrdersXlsx() {
     const orders = await db.getAll("orders");
-    const csv = ordersCsv(orders);
-    // 先頭のBOMが無いとWindowsのExcelで日本語が化ける
-    const blob = new Blob(["﻿" + csv], { type: "text/csv" });
+    const blob = new Blob([ordersXlsx(orders)], { type: xlsx.MIME });
     return {
       url: URL.createObjectURL(blob),
-      filename: `予約の記録_${stamp()}.csv`,
+      filename: `予約の記録_${stamp()}.xlsx`,
       count: orders.length,
     };
   }
 
-  return { build, prepare, download, parse, importPayload, FORMAT, ordersCsv, prepareOrdersCsv };
+  return { build, prepare, download, parse, importPayload, FORMAT, ordersRows, ordersXlsx, prepareOrdersXlsx };
 })();

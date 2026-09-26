@@ -214,11 +214,11 @@
       <input type="file" id="import-file" accept="application/json,.json" hidden>
     </div>
     <p class="note">
-      予約をExcelで開ける形（CSV）で書き出せます。予約1件が1行で、お客様の御名前・御住所・電話番号と、
+      予約をExcelファイル（.xlsx）で書き出せます。予約1件が1行で、お客様の御名前・御住所・電話番号と、
       商品・金額・受渡日・熨斗などの予約内容が入ります。名簿づくりや、古い予約を削除する前の記録に使ってください。
     </p>
     <div class="settings-actions">
-      <button id="btn-export-orders-csv" class="btn-sub">予約の記録を書き出す（Excel用）</button>
+      <button id="btn-export-orders-xlsx" class="btn-sub">予約の記録を書き出す（Excel）</button>
     </div>
   </section>
 
@@ -348,6 +348,7 @@
 <script src="data/products.js"></script>
 <script src="js/db.js"></script>
 <script src="js/master.js"></script>
+<script src="js/xlsx.js"></script>
 <script src="js/backup.js"></script>
 <script src="js/app.js"></script>
 </body>
